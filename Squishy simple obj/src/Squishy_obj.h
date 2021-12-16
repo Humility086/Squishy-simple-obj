@@ -2,14 +2,15 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
-#include <exception>
 #include <string>
 #include <sstream>
 #include <iostream>
 #include <algorithm>
 
+namespace fs = std::filesystem;
 namespace sqy_obj //squishy obj parser
 {
+	static int16_t material_count = -1;
 	//==========================================
 	//Data types to help parse the obj file data
 	//==========================================
@@ -62,20 +63,30 @@ namespace sqy_obj //squishy obj parser
 
 	struct Face
 	{
-		uint32_t indicies[3];
+		uint16_t indicies[3];
+		uint16_t material_index;
+	};
+
+	struct Material
+	{
+		float specular_exponent;
+		float ambient_color[3];
+		float diffuse_color[3];
+		float specular_color[3];
+		float alpha;
 	};
 
 	struct Mesh
 	{
 		std::vector<Vertex> m_verticies;
 		std::vector<Face> m_face_mapping;
+		std::vector<Material> m_materials;
 	};
-
 
 	//==========================================
 	//A data collection to help move data around
 	//==========================================
-	struct Vector_collection
+	struct Data_manager
 	{
 		std::vector<sqy_obj::attribute_position> m_positions;
 		std::vector<sqy_obj::attribute_texture_coord> m_texture_coords;
@@ -103,10 +114,11 @@ namespace sqy_obj //squishy obj parser
 	//Forward declerations
 	//====================
 
-	void create_vertex(sqy_obj::Vector_collection& data_manager, std::istringstream& input_stream, sqy_obj::Mesh& mesh);
-	bool check_for_duplicates(const int32_t& vertex_pos, const sqy_obj::Mesh& mesh, const sqy_obj::Vector_collection& data_manager);
-	void triangulate_quads(sqy_obj::Mesh& mesh, const uint32_t(&face_elements)[4], const sqy_obj::Vector_collection& data);
+	void create_vertex(sqy_obj::Data_manager& data_manager, std::istringstream& input_stream, sqy_obj::Mesh& mesh);
+	bool check_for_duplicates(const int16_t& vertex_pos, const sqy_obj::Mesh& mesh, const sqy_obj::Data_manager& data_manager);
+	void triangulate_quads(sqy_obj::Mesh& mesh, const uint32_t(&face_elements)[4], const sqy_obj::Data_manager& data);
 	float pos_length_sqaured(const sqy_obj::attribute_position& input);
+	sqy_obj::Material load_material(fs::path source2);
 
 	//===============================
 	//comparison operator overloading
@@ -116,7 +128,6 @@ namespace sqy_obj //squishy obj parser
 	//=============
 	//Main function
 	//=============
-	namespace fs = std::filesystem;
 
 	inline sqy_obj::Mesh load_obj_file(fs::path source)
 	{
@@ -124,7 +135,7 @@ namespace sqy_obj //squishy obj parser
 
 		//memory setup
 		std::ifstream input(source.string(), std::ios_base::in);
-		sqy_obj::Vector_collection data_manager;
+		sqy_obj::Data_manager data_manager;
 		std::string current_line_read;
 
 		//parsing logic
@@ -162,14 +173,30 @@ namespace sqy_obj //squishy obj parser
 				create_vertex(data_manager, input_stream, return_mesh);
 				break;
 			}
+			case switch_statement_values("mtllib"):
+			{
+				fs::path source2 = source;
+				source2.replace_extension(".mtl");
+				sqy_obj::Material temp = load_material(source2);
+				return_mesh.m_materials.push_back(temp);
+				break;
+			}
+			case switch_statement_values("usemtl"):
+			{
+				++material_count;
+				break;
+			}
 			default:
 				break;
 			}
 		}
 		return return_mesh;
 	}
+	//============
+	//End function
+	//============
 
-	inline void create_vertex(sqy_obj::Vector_collection& data_manager, std::istringstream& input_stream, sqy_obj::Mesh& mesh)
+	inline void create_vertex(sqy_obj::Data_manager& data_manager, std::istringstream& input_stream, sqy_obj::Mesh& mesh)
 	{
 		sqy_obj::attribute_texture_coord default_tex{ 0.f, 0.f };
 		sqy_obj::attribute_normal default_norm{ 0.f, 0.f, 0.f };
@@ -182,7 +209,7 @@ namespace sqy_obj //squishy obj parser
 		{
 			std::istringstream active_element(current_face);
 			std::string pos{}, tex{}, norm{};
-			int32_t p{}, t{}, n{};
+			int16_t p{}, t{}, n{};
 
 			std::getline(active_element, pos, '/');
 			std::getline(active_element, tex, '/');
@@ -234,7 +261,7 @@ namespace sqy_obj //squishy obj parser
 			triangulate_quads(mesh, face_elements, data_manager);
 	}
 
-	inline bool check_for_duplicates(const int32_t& vertex_pos, const sqy_obj::Mesh& mesh, const sqy_obj::Vector_collection& data_manager)
+	inline bool check_for_duplicates(const int16_t& vertex_pos, const sqy_obj::Mesh& mesh, const sqy_obj::Data_manager& data_manager)
 	{
 		for (auto it = mesh.m_verticies.begin(); it != mesh.m_verticies.end(); ++it)
 		{
@@ -246,7 +273,7 @@ namespace sqy_obj //squishy obj parser
 		return false;
 	}
 
-	inline void triangulate_quads(sqy_obj::Mesh& mesh, const uint32_t(&face_elements)[4], const sqy_obj::Vector_collection& data)
+	inline void triangulate_quads(sqy_obj::Mesh& mesh, const uint32_t(&face_elements)[4], const sqy_obj::Data_manager& data)
 	{
 		//Find the longest hypotenuse:
 		//There are 4 external lines, using array elements as labels
@@ -346,5 +373,54 @@ namespace sqy_obj //squishy obj parser
 			return false;
 
 		return true;
+	}
+
+
+	//===============
+	//Material parser
+	//===============
+	inline sqy_obj::Material load_material(fs::path source2)
+	{
+		constexpr float default_output[3]{ 0.f, 0.f, 0.f };
+		sqy_obj::Material result{};
+		std::ifstream input(source2.string(), std::ios_base::in);
+		std::string current_line_read;
+		while (std::getline(input, current_line_read))
+		{
+			std::istringstream input_stream(current_line_read);
+			std::string data_type_identifier;
+			input_stream >> data_type_identifier;
+
+			switch (switch_statement_values(data_type_identifier))
+			{
+			case switch_statement_values("Ns"):
+			{
+				input_stream >> result.specular_exponent;
+				break;
+			}
+			case switch_statement_values("Ka"):
+			{
+				input_stream >> result.ambient_color[0] >> result.ambient_color[1] >> result.ambient_color[2];
+				break;
+			}
+			case switch_statement_values("Kd"):
+			{
+				input_stream >> result.diffuse_color[0] >> result.diffuse_color[1] >> result.diffuse_color[2];
+				break;
+			}
+			case switch_statement_values("Ks"):
+			{
+				input_stream >> result.specular_color[0] >> result.specular_color[1] >> result.specular_color[2];
+				break;
+			}
+			case switch_statement_values("d"):
+			{
+				input_stream >> result.alpha;
+			}
+			default:
+				break;
+			}
+		}
+		return result;
 	}
 }
