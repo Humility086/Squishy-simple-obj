@@ -118,7 +118,7 @@ namespace sqy_obj //squishy obj parser
 	bool check_for_duplicates(const int16_t& vertex_pos, const sqy_obj::Mesh& mesh, const sqy_obj::Data_manager& data_manager);
 	void triangulate_quads(sqy_obj::Mesh& mesh, const uint32_t(&face_elements)[4], const sqy_obj::Data_manager& data);
 	float pos_length_sqaured(const sqy_obj::attribute_position& input);
-	sqy_obj::Material load_material(fs::path source2);
+	void load_material(fs::path source2, sqy_obj::Mesh& mesh);
 
 	//===============================
 	//comparison operator overloading
@@ -177,8 +177,7 @@ namespace sqy_obj //squishy obj parser
 			{
 				fs::path source2 = source;
 				source2.replace_extension(".mtl");
-				sqy_obj::Material temp = load_material(source2);
-				return_mesh.m_materials.push_back(temp);
+				load_material(source2, return_mesh);
 				break;
 			}
 			case switch_statement_values("usemtl"):
@@ -253,6 +252,7 @@ namespace sqy_obj //squishy obj parser
 			temp.indicies[0] = face_elements[0];
 			temp.indicies[1] = face_elements[1];
 			temp.indicies[2] = face_elements[2];
+			temp.material_index = material_count;
 			mesh.m_face_mapping.push_back(temp);
 			return;
 		}
@@ -312,39 +312,43 @@ namespace sqy_obj //squishy obj parser
 			temp.indicies[0] = face_elements[0];
 			temp.indicies[1] = face_elements[1];
 			temp.indicies[2] = face_elements[2];
+			temp.material_index = material_count;
 			mesh.m_face_mapping.push_back(temp);
 			temp.indicies[1] = face_elements[3];
 			mesh.m_face_mapping.push_back(temp);
 		}
 
-		if (longest == b)
+		else if (longest == b)
 		{
 			sqy_obj::Face temp{};
 			temp.indicies[0] = face_elements[1];
 			temp.indicies[1] = face_elements[2];
 			temp.indicies[2] = face_elements[3];
+			temp.material_index = material_count;
 			mesh.m_face_mapping.push_back(temp);
 			temp.indicies[1] = face_elements[0];
 			mesh.m_face_mapping.push_back(temp);
 		}
 
-		if (longest == c)
+		else if (longest == c)
 		{
 			sqy_obj::Face temp{};
 			temp.indicies[0] = face_elements[2];
 			temp.indicies[1] = face_elements[3];
 			temp.indicies[2] = face_elements[0];
+			temp.material_index = material_count;
 			mesh.m_face_mapping.push_back(temp);
 			temp.indicies[1] = face_elements[1];
 			mesh.m_face_mapping.push_back(temp);
 		}
 
-		if (longest == d)
+		else if (longest == d)
 		{
 			sqy_obj::Face temp{};
 			temp.indicies[0] = face_elements[3];
 			temp.indicies[1] = face_elements[0];
 			temp.indicies[2] = face_elements[1];
+			temp.material_index = material_count;
 			mesh.m_face_mapping.push_back(temp);
 			temp.indicies[1] = face_elements[2];
 			mesh.m_face_mapping.push_back(temp);
@@ -379,7 +383,7 @@ namespace sqy_obj //squishy obj parser
 	//===============
 	//Material parser
 	//===============
-	inline sqy_obj::Material load_material(fs::path source2)
+	inline void load_material(fs::path source2, sqy_obj::Mesh& mesh)
 	{
 		constexpr float default_output[3]{ 0.f, 0.f, 0.f };
 		sqy_obj::Material result{};
@@ -416,11 +420,11 @@ namespace sqy_obj //squishy obj parser
 			case switch_statement_values("d"):
 			{
 				input_stream >> result.alpha;
+				mesh.m_materials.push_back(result);
 			}
 			default:
 				break;
 			}
 		}
-		return result;
 	}
 }
